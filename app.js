@@ -18,8 +18,13 @@ let activeDetailsId = null;
 function createElement(tag, className, text) {
   const element = document.createElement(tag);
 
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
+  if (className) {
+    element.className = className;
+  }
+
+  if (text !== undefined) {
+    element.textContent = text;
+  }
 
   return element;
 }
@@ -52,7 +57,9 @@ function getMeta(anime) {
 }
 
 async function loadAnime(searchText = "") {
-  if (searchController) searchController.abort();
+  if (searchController) {
+    searchController.abort();
+  }
 
   const controller = new AbortController();
   searchController = controller;
@@ -80,12 +87,18 @@ async function loadAnime(searchText = "") {
           }
           episodes
           averageScore
-          genres
           status
         }
       }
     }
   `;
+
+  let timedOut = false;
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 20000);
 
   try {
     const response = await fetch(ANILIST_API, {
@@ -95,7 +108,7 @@ async function loadAnime(searchText = "") {
         "Accept": "application/json"
       },
       body: JSON.stringify({
-        query,
+        query: query,
         variables: {
           search: searchText.trim() || null
         }
@@ -104,7 +117,7 @@ async function loadAnime(searchText = "") {
     });
 
     if (!response.ok) {
-      throw new Error(`Ошибка сервера: ${response.status}`);
+      throw new Error(`Сервис ответил с кодом ${response.status}`);
     }
 
     const data = await response.json();
@@ -113,21 +126,33 @@ async function loadAnime(searchText = "") {
       throw new Error(data.errors[0].message);
     }
 
-    if (!data.data?.Page?.media) {
-      throw new Error("Сервис вернул неожиданный ответ.");
+    const animeList = data.data?.Page?.media;
+
+    if (!Array.isArray(animeList)) {
+      throw new Error("Сервис вернул неожиданный ответ");
     }
 
-    renderAnime(data.data.Page.media);
+    if (searchController !== controller) {
+      return;
+    }
+
+    renderAnime(animeList);
   } catch (error) {
-    if (error.name === "AbortError") return;
+    if (searchController !== controller) {
+      return;
+    }
+
+    if (error.name === "AbortError" && !timedOut) {
+      return;
+    }
 
     console.error(error);
 
-    showMessage(
-      results,
-      "Не удалось загрузить каталог. Проверь интернет. " +
-      "Если соединение есть, попробуй немного позже."
-    );
+    const message = timedOut
+      ? "Сервис долго не отвечает. Попробуй ещё раз."
+      : `Не удалось загрузить аниме. ${error.message}`;
+
+    showMessage(results, message);
 
     const retry = createElement(
       "button",
@@ -140,6 +165,8 @@ async function loadAnime(searchText = "") {
     });
 
     results.appendChild(retry);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -156,17 +183,20 @@ function renderAnime(animeList) {
 
   animeList.forEach((anime) => {
     const card = createElement("article", "card");
+    const title = getTitle(anime);
+
     card.tabIndex = 0;
     card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Открыть: ${title}`);
     card.style.cursor = "pointer";
-
-    const title = getTitle(anime);
 
     if (anime.coverImage?.large) {
       const image = createElement("img");
+
       image.src = anime.coverImage.large;
       image.alt = title;
       image.loading = "lazy";
+
       card.appendChild(image);
     }
 
@@ -195,64 +225,71 @@ function renderAnime(animeList) {
 }
 
 function cleanDescription(value) {
-  if (!value) return "";
+  if (!value) {
+    return "";
+  }
 
   const parsed = new DOMParser().parseFromString(
     value,
     "text/html"
   );
 
-  parsed.querySelectorAll("br").forEach((element) => {
-    element.replaceWith("
-");
+  parsed.querySelectorAll("script, style").forEach((element) => {
+    element.remove();
   });
 
-  return (parsed.body.textContent || "")
-    .replace(/[/?[^]]+]/g, "")
-    .replace(/
-{3,}/g, "
+  parsed.querySelectorAll("br").forEach((element) => {
+    element.replaceWith(" ");
+  });
 
-")
-    .trim();
+  return (parsed.body.textContent || "").trim();
 }
 
 async function getRussianDetails(anime) {
-  // Не подбираем случайный тайтл по похожему названию.
-  if (!anime.idMal) return null;
+  if (!anime.idMal) {
+    return null;
+  }
 
   if (descriptionCache.has(anime.idMal)) {
     return descriptionCache.get(anime.idMal);
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 10000);
 
   try {
     const response = await fetch(
       `${SHIKIMORI_API}/animes/${anime.idMal}`,
       {
-        headers: { "Accept": "application/json" },
+        headers: {
+          "Accept": "application/json"
+        },
         signal: controller.signal
       }
     );
 
     if (!response.ok) {
-      throw new Error("Русское описание недоступно.");
+      throw new Error("Сервис русского описания недоступен");
     }
 
     const data = await response.json();
 
-    const translated = {
+    const russian = {
       title: data.russian || "",
       description: cleanDescription(
         data.description_html || data.description
       )
     };
 
-    descriptionCache.set(anime.idMal, translated);
-    return translated;
+    descriptionCache.set(anime.idMal, russian);
+
+    return russian;
   } catch (error) {
-    console.warn("Не удалось получить русский текст:", error);
+    console.warn("Русское описание не загрузилось:", error);
+
     return null;
   } finally {
     clearTimeout(timeout);
@@ -260,10 +297,15 @@ async function getRussianDetails(anime) {
 }
 
 async function openAnime(anime) {
-  activeDetailsId = anime.id;
+  const requestToken = {};
+  activeDetailsId = requestToken;
 
   const topbar = document.querySelector(".topbar");
-  topbar.hidden = true;
+
+  if (topbar) {
+    topbar.hidden = true;
+  }
+
   results.hidden = true;
   results.style.display = "none";
 
@@ -280,8 +322,10 @@ async function openAnime(anime) {
 
   if (anime.coverImage?.large) {
     const image = createElement("img");
+
     image.src = anime.coverImage.large;
     image.alt = getTitle(anime);
+
     hero.appendChild(image);
   }
 
@@ -301,6 +345,7 @@ async function openAnime(anime) {
 
   language.style.marginTop = "12px";
   information.appendChild(language);
+
   hero.appendChild(information);
 
   const descriptionSection = createElement(
@@ -330,14 +375,14 @@ async function openAnime(anime) {
   const notice = createElement(
     "p",
     "muted",
-    "Это список эпизодов из каталога. " +
-    "Видеофайлы пока не подключены."
+    "Ниже — номера эпизодов из каталога, а не готовые видео. Видеофайлы пока не подключены."
   );
 
   notice.style.marginBottom = "14px";
   episodesSection.appendChild(notice);
 
   const episodeButtons = createElement("div", "episodes");
+
   episodesSection.appendChild(episodeButtons);
 
   details.append(
@@ -348,12 +393,14 @@ async function openAnime(anime) {
   );
 
   renderEpisodes(anime, episodeButtons);
+
   window.scrollTo(0, 0);
 
   const russian = await getRussianDetails(anime);
 
-  // Не обновляем экран, если пользователь уже вышел.
-  if (activeDetailsId !== anime.id) return;
+  if (activeDetailsId !== requestToken) {
+    return;
+  }
 
   if (russian?.title) {
     heading.textContent = russian.title;
@@ -361,9 +408,7 @@ async function openAnime(anime) {
 
   descriptionText.textContent =
     russian?.description ||
-    "Описание на русском пока недоступно. " +
-    "Возможно, сервис с описаниями не ответил " +
-    "или у этого аниме ещё нет русского текста.";
+    "Описание на русском пока недоступно: сервис не ответил или русский текст отсутствует.";
 }
 
 function closeAnime() {
@@ -372,7 +417,11 @@ function closeAnime() {
   details.hidden = true;
   details.replaceChildren();
 
-  document.querySelector(".topbar").hidden = false;
+  const topbar = document.querySelector(".topbar");
+
+  if (topbar) {
+    topbar.hidden = false;
+  }
 
   results.hidden = false;
   results.style.removeProperty("display");
@@ -389,7 +438,6 @@ function renderEpisodes(anime, container) {
     return;
   }
 
-  // Добавляем кнопки порциями, чтобы не перегружать телефон.
   let displayed = 0;
 
   const more = createElement(
@@ -404,7 +452,11 @@ function renderEpisodes(anime, container) {
     const last = Math.min(displayed + 60, count);
     const fragment = document.createDocumentFragment();
 
-    for (let episode = displayed + 1; episode <= last; episode++) {
+    for (
+      let episode = displayed + 1;
+      episode <= last;
+      episode++
+    ) {
       const button = createElement(
         "button",
         "episode",
@@ -413,12 +465,7 @@ function renderEpisodes(anime, container) {
 
       button.addEventListener("click", () => {
         alert(
-          `Серия ${episode}
-
-` +
-          "Плеер пока не подключён. " +
-          "Следующим шагом добавим выбор видео " +
-          "и русских субтитров."
+          `Серия ${episode}. Плеер пока не подключён. Следующий этап — добавить выбор видео и русских субтитров.`
         );
       });
 
@@ -437,15 +484,30 @@ function renderEpisodes(anime, container) {
   appendBatch();
 }
 
-searchInput.addEventListener("input", () => {
-  clearTimeout(searchTimer);
+if (results && searchInput) {
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
 
-  // Отменяем прежний запрос, если пользователь меняет поиск.
-  if (searchController) searchController.abort();
+    if (searchController) {
+      searchController.abort();
+      searchController = null;
+    }
 
-  searchTimer = setTimeout(() => {
-    loadAnime(searchInput.value);
-  }, 600);
-});
+    searchTimer = setTimeout(() => {
+      loadAnime(searchInput.value);
+    }, 600);
+  });
 
-loadAnime();
+  loadAnime();
+} else {
+  const warning = createElement(
+    "p",
+    "",
+    "Не найдены элементы страницы. В index.html должны быть поле с id="search" и блок с id="results"."
+  );
+
+  warning.style.padding = "20px";
+  warning.style.color = "#fca5a5";
+
+  document.body.appendChild(warning);
+  }
