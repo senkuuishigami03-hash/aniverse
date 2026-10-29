@@ -1,1 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+  <title>AniVerse — Аниме с русскими субтитрами</title>
+
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Ani<span>Verse</span></h1>
+
+    <p style="color: #9ca3af; margin-bottom: 12px;">
+      Японская озвучка · Русские субтитры
+    </p>
+
+    <input
+      id="search"
+      type="search"
+      placeholder="Поиск аниме..."
+      aria-label="Поиск аниме"
+    >
+  </header>
+
+  <main>
+    <section id="results" class="grid"></section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
