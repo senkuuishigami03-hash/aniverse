@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>AniVerse — Аниме с русскими субтитрами</title>
+  <title>AniVerse</title>
 
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -24,10 +24,65 @@
     >
   </header>
 
+  <aside
+    id="diagnostics"
+    style="margin: 16px; padding: 14px; background: #241535; color: #ffffff; border: 1px solid #8b5cf6; border-radius: 12px; overflow-wrap: anywhere;"
+  >
+    Проверка №4. HTML обновлён. JavaScript ещё не запустился.
+  </aside>
+
   <main>
     <section id="results" class="grid"></section>
   </main>
 
-  <script src="./app.js"></script>
+  <script>
+    var diagnostics = document.getElementById("diagnostics");
+
+    diagnostics.textContent =
+      "Проверка №4. JavaScript работает. Подключаем app.js…";
+
+    window.addEventListener("error", function (event) {
+      if (event.message) {
+        diagnostics.textContent =
+          "Ошибка JavaScript: " +
+          event.message +
+          ". Строка: " +
+          event.lineno;
+      }
+    });
+
+    window.addEventListener("unhandledrejection", function (event) {
+      var reason = event.reason;
+
+      diagnostics.textContent =
+        "Ошибка выполнения: " +
+        (reason && reason.message ? reason.message : String(reason));
+    });
+
+    function appLoaded() {
+      if (diagnostics.textContent.indexOf("Ошибка") !== -1) {
+        return;
+      }
+
+      if (typeof loadAnime === "function") {
+        diagnostics.textContent =
+          "Проверка №4. app.js подключён. Ниже должен появиться каталог или сообщение о загрузке.";
+      } else {
+        diagnostics.textContent =
+          "Проверка №4. Файл app.js получен, но функция каталога не найдена. Нужно проверить содержимое app.js.";
+      }
+    }
+
+    function appFailed() {
+      diagnostics.textContent =
+        "Проверка №4. Не удалось подключить app.js. Проверь название файла и его расположение рядом с index.html.";
+    }
+  </script>
+
+  <script
+    src="./app.js?v=4"
+    onload="appLoaded()"
+    onerror="appFailed()"
+  ></script>
 </body>
 </html>
